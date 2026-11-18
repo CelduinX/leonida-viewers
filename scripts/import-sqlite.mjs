@@ -1,9 +1,16 @@
 // One-time, transactional migration of an existing SQLite installation to empty PostgreSQL.
 import{DatabaseSync}from'node:sqlite';
+import{copyFileSync,existsSync,mkdtempSync,rmSync}from'node:fs';
+import{tmpdir}from'node:os';
+import{join}from'node:path';
 import{postgres}from'./postgres.mjs';
 import{log}from'./runtime.mjs';
 const sourcePath=process.argv[2];if(!sourcePath){console.error('Usage: node scripts/import-sqlite.mjs /path/to/leonida.sqlite');process.exit(1);}
-const source=new DatabaseSync(sourcePath,{readOnly:true});source.exec('BEGIN');const destination=postgres();
+// SQLite may need writable WAL/SHM sidecars even for read-only connections.
+// Stage a stopped installation on writable tmpfs; never alter the original mount.
+const staging=mkdtempSync(join(tmpdir(),'leonida-import-')),stagedPath=join(staging,'source.sqlite');
+for(const suffix of ['','-wal','-shm'])if(existsSync(sourcePath+suffix))copyFileSync(sourcePath+suffix,stagedPath+suffix);
+const source=new DatabaseSync(stagedPath,{readOnly:true});source.exec('BEGIN');const destination=postgres();
 const tables=['country_mappings','snapshots','snapshot_chunks','profiles','collector_state','viewer_peaks','recording_state','monitor_status'];
 const client=await destination.pool.connect();
 try{
@@ -23,4 +30,4 @@ try{
   await client.query('UPDATE collector_state SET lease_until=0,lease_owner=NULL');
   await client.query('COMMIT');log('sqlite_import_complete',{rows:count});
 }catch(e){await client.query('ROLLBACK');log('sqlite_import_failed',{type:e.name,code:e.code||'destination_not_empty'});process.exitCode=1;}
-finally{client.release();source.close();await destination.close();}
+finally{client.release();source.close();rmSync(staging,{recursive:true,force:true});await destination.close();}
