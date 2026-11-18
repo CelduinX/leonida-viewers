@@ -1,0 +1,99 @@
+name: leonida
+x-app: &app
+  image: ${GHCR_IMAGE:-ghcr.io/celduinx/leonida-viewers}:${IMAGE_TAG:-latest}
+  init: true
+  read_only: true
+  tmpfs: [/tmp]
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  restart: unless-stopped
+  stop_grace_period: 90s
+  pids_limit: 150
+  logging:
+    driver: json-file
+    options: {max-size: 10m, max-file: '3'}
+x-db-env: &db-env
+  DATABASE_DRIVER: postgres
+  DATABASE_URL: ${DATABASE_URL:-}
+  POSTGRES_HOST: database
+  POSTGRES_PORT: '5432'
+  POSTGRES_DB: ${POSTGRES_DB:-gtavi}
+  POSTGRES_USER: ${POSTGRES_USER:-gtavi}
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD in .env setzen oder node scripts/setup-env.mjs ausführen}
+  DB_POOL_SIZE: ${DB_POOL_SIZE:-5}
+  AUTO_MIGRATE: 'false'
+  NODE_ENV: production
+  POLL_INTERVAL_SECONDS: ${POLL_INTERVAL_SECONDS:-60}
+  COLLECTION_BUDGET_SECONDS: ${COLLECTION_BUDGET_SECONDS:-40}
+services:
+  database:
+    image: postgres:18-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-gtavi}
+      POSTGRES_USER: ${POSTGRES_USER:-gtavi}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD in .env setzen}
+    volumes: [postgres-data:/var/lib/postgresql]
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"']
+      interval: 5s
+      timeout: 5s
+      retries: 15
+      start_period: 15s
+    logging:
+      driver: json-file
+      options: {max-size: 10m, max-file: '3'}
+  migrate:
+    <<: *app
+    command: [node, scripts/migrate.mjs]
+    restart: on-failure:3
+    environment:
+      <<: *db-env
+      APP_ROLE: migrate
+    depends_on:
+      database: {condition: service_healthy}
+    healthcheck: {disable: true}
+  worker:
+    <<: *app
+    command: [node, scripts/worker.mjs]
+    environment:
+      <<: *db-env
+      APP_ROLE: worker
+      TWITCH_CLIENT_ID: ${TWITCH_CLIENT_ID:-}
+      TWITCH_CLIENT_SECRET: ${TWITCH_CLIENT_SECRET:-}
+      TWITCH_GAME_ID: ${TWITCH_GAME_ID:-}
+      MAX_STREAM_PAGES: ${MAX_STREAM_PAGES:-400}
+      HISTORY_RETENTION_DAYS: ${HISTORY_RETENTION_DAYS:-30}
+    depends_on:
+      database: {condition: service_healthy}
+      migrate: {condition: service_completed_successfully, restart: true}
+    healthcheck:
+      test: [CMD, node, scripts/worker-health.mjs]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+  web:
+    <<: *app
+    ports: ['${WEB_BIND_ADDRESS:-127.0.0.1}:${WEB_PORT:-3000}:3000']
+    environment:
+      <<: *db-env
+      APP_ROLE: web
+      MONITOR_MODE: external
+      MONITOR_EXPECT_WORKER: 'true'
+      COLLECT_ON_REQUEST: 'false'
+      HOST: 0.0.0.0
+      PORT: '3000'
+      ADMIN_TOKEN: ${ADMIN_TOKEN:-}
+    depends_on:
+      database: {condition: service_healthy}
+      migrate: {condition: service_completed_successfully, restart: true}
+      worker: {condition: service_healthy}
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+volumes:
+  postgres-data:

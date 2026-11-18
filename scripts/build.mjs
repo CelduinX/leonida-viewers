@@ -51,4 +51,4 @@ export default {
 `;
 await fs.writeFile('dist/server/index.js',server+wrapper);
 await fs.copyFile('.openai/hosting.json','dist/.openai/hosting.json');
-console.log('Built Worker ESM + browser assets. No runtime dependencies.');
+console.log('Built browser assets and shared collector. PostgreSQL adapter is loaded only by Node.');

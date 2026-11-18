@@ -1,0 +1,14 @@
+# Optionaler lokaler Image-Build. Produktion benötigt diese Datei nicht.
+services:
+  web:
+    image: leonida-local:dev
+    build: .
+    pull_policy: never
+  worker:
+    image: leonida-local:dev
+    build: .
+    pull_policy: never
+  migrate:
+    image: leonida-local:dev
+    build: .
+    pull_policy: never

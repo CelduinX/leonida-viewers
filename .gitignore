@@ -7,3 +7,8 @@ data/
 .wrangler/
 *.log
 .openai/local-*.json
+backups/
+coverage/
+.env.setup.tmp
+*.sqlite*
+*.dump

@@ -1,13 +1,13 @@
 import { createServer } from 'node:http';
 import { Readable } from 'node:stream';
-import { database } from './database.mjs';
-import worker,{collect,interval} from '../dist/server/index.js';
-const db=database(process.env.DATABASE_PATH||'./data/leonida.sqlite');
+import {openDatabase,log} from './runtime.mjs';
+import {startMonitor} from './monitor.mjs';
+import worker from '../dist/server/index.js';
+const db=await openDatabase(process.env,{migrate:process.env.AUTO_MIGRATE!=='false'});
 const env={...process.env,DB:db};
 const pending=new Set();
 const ctx={waitUntil(p){pending.add(p);p.catch(e=>console.error('Background collection failed:',e.name)).finally(()=>pending.delete(p));}};
-const timer=setInterval(()=>ctx.waitUntil(collect(env)),Math.min(interval(env),10000));timer.unref();
-ctx.waitUntil(collect(env));
+const monitor=process.env.MONITOR_MODE==='external'?null:startMonitor(env);
 const server=createServer(async(req,res)=>{
   try{
     if(Number(req.headers['content-length'])>210000){res.writeHead(413);res.end('Request too large');return;}
@@ -27,6 +27,8 @@ const server=createServer(async(req,res)=>{
 });
 server.requestTimeout=30000;server.headersTimeout=15000;server.keepAliveTimeout=5000;
 const port=Number(process.env.PORT)||3000,host=process.env.HOST||'127.0.0.1';
+server.on('error',e=>{log('http_server_error',{code:e.code});void shutdown();});
 server.listen(port,host,()=>console.log(`LEONIDA ready at http://${host}:${port}`));
-async function shutdown(){clearInterval(timer);server.close();await Promise.allSettled([...pending]);db.close();process.exit(0);}
+let closing=false;
+async function shutdown(){if(closing)return;closing=true;server.close();await monitor?.stop();await Promise.allSettled([...pending]);await db.close();process.exit(process.exitCode||0);}
 process.on('SIGTERM',shutdown);process.on('SIGINT',shutdown);

@@ -1,4 +1,4 @@
-import type { DashboardData, Group, Stream, Point } from './types.ts';
+import type { DashboardData, Group, Stream, Point, Peak } from './types.ts';
 
 const $ = <T extends HTMLElement = HTMLElement>(selector: string, root: ParentNode = document) => root.querySelector<T>(selector)!;
 const all = <T extends HTMLElement = HTMLElement>(selector: string, root: ParentNode = document) => [...root.querySelectorAll<T>(selector)];
@@ -129,8 +129,38 @@ function render(){
   const select=$<HTMLSelectElement>('#country-filter'),selected=filter;
   select.innerHTML='<option value="all">Weltweit</option>'+d.countries.map(g=>`<option value="${escape(g.code)}">${escape(flag(g.code)+' '+countryName(g.code))}</option>`).join('');
   if(!d.countries.some(g=>g.code===selected))filter='all';select.value=filter;
-  renderGroups(duration);renderStreams(duration);renderChart();
+  renderRecords();renderGroups(duration);renderStreams(duration);renderChart();
   lastSnapshot=s?.id??null;
+}
+function isNewRecord(peak:Peak){return !preview&&!!data?.snapshot?.complete&&peak.viewersAt===data.snapshot.capturedAt;}
+function renderEntityPeak(el:HTMLElement,peak:Peak|undefined,hide=false){
+  el.hidden=hide;
+  if(hide)return;
+  if(!peak){el.textContent=preview?'Peak · keine echten Messungen':'Peak · noch keine vollständige Messung';el.removeAttribute('title');return;}
+  const fresh=isNewRecord(peak);
+  el.innerHTML=`<span class="entity-peak-value${fresh?' record-now':''}">${fresh?'◆ ':''}Peak ${fmt.format(peak.viewers)}</span><time datetime="${new Date(peak.viewersAt).toISOString()}">${escape(time(peak.viewersAt,true))}</time>`;
+  el.title=`GTA-VI-Rekord seit Beginn der Aufzeichnung: ${fmt.format(peak.viewers)} Zuschauer am ${time(peak.viewersAt,true)} · erster erfasster Wert ${time(peak.firstMeasuredAt,true)}`;
+}
+function renderRecords(){
+  if(!data)return;
+  const peak=data.peaks?.global;
+  $('#global-peak').textContent=peak?fmt.format(peak.viewers):'—';
+  $('#global-peak-time').textContent=peak?`Rekord aufgestellt am ${time(peak.viewersAt,true)}`:preview?'Keine echten Rekorde in der Designvorschau.':'Wartet auf die erste vollständige Twitch-Messung.';
+  $('#recording-start').textContent=data.peaks?.startedAt?time(data.peaks.startedAt,true):'Noch nicht gestartet';
+  $('#peak-channels').textContent=peak?`${fmt.format(peak.channels)} aktive Streams im Maximum`:'— aktive Streams im Maximum';
+  $('#peak-channels-time').textContent=peak?time(peak.channelsAt,true):'';
+  $('#peak-timezone').textContent=`Lokale Zeitzone: ${Intl.DateTimeFormat().resolvedOptions().timeZone}`;
+  $('#peak-new').hidden=!peak||!isNewRecord(peak);
+  if(peak&&isNewRecord(peak))$('#peak-new').textContent=peak.viewersAt===peak.firstMeasuredAt?'ERSTE MESSUNG':'NEUER REKORD';
+  const m=data.monitoring,badge=$('#monitor-badge');
+  if(!m){badge.textContent='Kein Status';return;}
+  const labels:Record<string,string>={live:'Aktiv',collecting:'Abfrage läuft',partial:'Teilerfassung',error:'API-Fehler','no-category':'Kategorie ausstehend',pending:'Wartet',unconfigured:'Nicht eingerichtet',offline:'Worker offline',stuck:'Worker blockiert'};
+  badge.textContent=preview?'Designvorschau':labels[m.status]||m.status;
+  badge.className=`monitor-badge${!preview&&m.healthy&&m.live?' good':!preview&&(!m.healthy||m.status==='error')?' bad':' warning'}`;
+  $('#monitor-success').textContent=m.lastSuccessAt?time(m.lastSuccessAt,true):'Noch keine vollständige Messung';
+  $('#monitor-heartbeat').textContent=m.heartbeatAt?time(m.heartbeatAt,true):preview?'Kein Worker im Demo-Modus':'Kein Worker-Signal';
+  $('#monitor-counts').textContent=preview?'—':`${fmt.format(m.successes)} / ${fmt.format(m.partials)} / ${fmt.format(m.failures)}`;
+  $('#monitor-message').textContent=preview?'Beispieldaten werden nicht als historische Rekorde gespeichert.':m.error||(!m.configured?'Twitch-Zugangsdaten im Worker hinterlegen.':!m.healthy?'Monitoring-Prozess prüfen. Die letzten Messungen bleiben gespeichert.':m.live?`Zentraler Abruf alle ${data.intervalMs/1000} s · letzte Dauer ${m.lastDurationMs??0} ms`:'Worker erreichbar. Noch keine aktuelle vollständige Messung.');
 }
 function renderGroups(duration=60000){
   if(!data)return;
@@ -147,13 +177,14 @@ function renderGroups(duration=60000){
   const list=showAllCountries?groups:groups.slice(0,5);
   const nodes=list.map((g,i)=>{
     const key=`${groupMode}-${g.code}`;let row=oldNodes.get(key);
-    if(!row){row=document.createElement('button');row.className='country-row';row.dataset.key=key;row.innerHTML='<span class="country-rank"></span><span class="flag"></span><span class="country-info"><span class="country-name"></span><span class="country-channels"></span></span><span class="country-values"><span class="country-value"></span><span class="country-bar"><i></i></span></span>';}
+    if(!row){row=document.createElement('button');row.className='country-row';row.dataset.key=key;row.innerHTML='<span class="country-rank"></span><span class="flag"></span><span class="country-info"><span class="country-name"></span><span class="country-channels"></span><span class="country-peak"></span></span><span class="country-values"><span class="country-value"></span><span class="country-bar"><i></i></span></span>';}
     row.dataset.groupCode=g.code;row.setAttribute('aria-label',`${groupMode==='country'?countryName(g.code):languageName(g.code)}, ${fmt.format(g.viewers)} Zuschauer, ${g.channels} Kanäle anzeigen`);
     row.classList.toggle('selected',groupMode==='country'?filter===g.code:languageFilter===g.code);
     $('.country-rank',row).textContent=String(i+1).padStart(2,'0');$('.flag',row).textContent=groupMode==='country'?flag(g.code):g.code.toUpperCase();
     if(groupMode==='language')$('.flag',row).style.cssText='font-size:11px;color:#b299cc;font-weight:600';else $('.flag',row).style.cssText='';
     $('.country-name',row).textContent=groupMode==='country'?countryName(g.code):languageName(g.code);
     $('.country-channels',row).textContent=`${fmt.format(g.channels)} ${g.channels===1?'Kanal':'Kanäle'}`;
+    renderEntityPeak($('.country-peak',row),groupMode==='country'?g.peak:undefined,groupMode==='language');
     const initial=g.delta===null?undefined:g.viewers-g.delta;
     num($('.country-value',row),g.viewers,duration,initial);
     $('.country-value',row).title=`Messwert ${fmt.format(g.viewers)} · Änderung ${g.delta===null?'unbekannt':fmt.format(g.delta)}`;
@@ -180,7 +211,7 @@ function renderStreams(duration=60000){
   const nodes=matching.slice(0,visibleStreams).map((s,i)=>{
     let row=oldNodes.get(s.id);
     if(!row){row=document.createElement('div');row.className='stream-row';row.dataset.key=s.id;
-      row.innerHTML='<span class="stream-rank"></span><div class="stream-account"><span class="avatar"></span><div class="stream-meta"><a class="stream-name" target="_blank" rel="noopener noreferrer"></a><div class="stream-stream-title"></div></div></div><div class="stream-numbers"><span class="stream-number"></span><span class="delta"></span></div><a class="stream-external" target="_blank" rel="noopener noreferrer">↗</a>';
+      row.innerHTML='<span class="stream-rank"></span><div class="stream-account"><span class="avatar"></span><div class="stream-meta"><a class="stream-name" target="_blank" rel="noopener noreferrer"></a><div class="stream-stream-title"></div><div class="stream-peak"></div></div></div><div class="stream-numbers"><span class="stream-number"></span><span class="delta"></span></div><a class="stream-external" target="_blank" rel="noopener noreferrer">↗</a>';
     }
     const rank=$('.stream-rank',row);rank.textContent=String(i+1).padStart(2,'0');rank.classList.toggle('top-rank',i===0);rank.title=`Globaler Rang ${globalRank.get(s.id)}`;
     const avatar=$('.avatar',row);
@@ -194,6 +225,8 @@ function renderStreams(duration=60000){
     const external=$<HTMLAnchorElement>('.stream-external',row);
     if(preview){name.removeAttribute('href');external.removeAttribute('href');external.setAttribute('aria-label','Fiktiver Kanal in der Designvorschau');}else{name.href=link;external.href=link;external.setAttribute('aria-label',`${s.name} auf Twitch öffnen`);}
     $('.stream-stream-title',row).textContent=s.title;$('.stream-stream-title',row).title=s.title;
+    renderEntityPeak($('.stream-peak',row),s.peak);
+    $('.stream-meta',row).title=`Twitch-User-ID: ${s.userId}`;
     num($('.stream-number',row),s.viewers,duration,s.delta===null?undefined:s.viewers-s.delta);
     $('.stream-number',row).title=`Letzter Messwert: ${fmt.format(s.viewers)} Zuschauer`;
     delta($('.delta',row),s.delta);
@@ -237,7 +270,7 @@ async function refresh(manual=false){
   try{
     const response=await fetch(`/api/dashboard?range=${range}`,{cache:'no-store',signal:AbortSignal.timeout(15000)});
     if(!response.ok)throw new Error(`Server nicht erreichbar (HTTP ${response.status}).`);
-    data=await response.json() as DashboardData;render();
+    const next=await response.json() as DashboardData;if(preview)return;data=next;render();
     if(manual)toast('Gemeinsamen Datenstand geladen. Twitch-Abrufe folgen dem Serverintervall.');
   }catch(e){
     $('#notice').hidden=false;$('#notice').classList.add('warning');$('#notice').textContent='Verbindung unterbrochen. Letzte Daten bleiben sichtbar; erneuter Versuch folgt automatisch.';
@@ -251,7 +284,7 @@ function setView(next:string){
   $('#breadcrumb').textContent=titles[next]||titles.overview;
   all('[data-view]').forEach(el=>{el.classList.toggle('active',el.dataset.view===next);if(el.dataset.view===next)el.setAttribute('aria-current','page');else el.removeAttribute('aria-current');});
   $('main').classList.toggle('expanded',next!=='overview');$('main').classList.toggle('country-view',next==='countries'||next==='languages');$('main').classList.toggle('streamer-view',next==='streamers');
-  $('#history-section').hidden=next!=='overview';$('.hero-grid').hidden=next!=='overview';$('.metrics-grid').hidden=next!=='overview';
+  $('#record-section').hidden=next!=='overview';$('#history-section').hidden=next!=='overview';$('.hero-grid').hidden=next!=='overview';$('.metrics-grid').hidden=next!=='overview';
   showAllCountries=next==='countries'||next==='languages';visibleStreams=next==='overview'?5:50;
   if(next==='languages')groupMode='language';if(next==='countries')groupMode='country';
   render();$('#sidebar').classList.remove('open');

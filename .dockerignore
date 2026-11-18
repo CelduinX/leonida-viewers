@@ -3,4 +3,11 @@ dist
 data
 .env
 .env.*
+!.env.example
 .git
+.github
+backups
+coverage
+*.log
+*.sqlite*
+.openai/local-*
