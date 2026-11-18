@@ -1,0 +1,16 @@
+#!/bin/sh
+set -eu
+cd "$(dirname "$0")"
+if command -v node >/dev/null 2>&1; then
+  LEONIDA_NODE="$(command -v node)"
+elif [ -x /Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node ]; then
+  LEONIDA_NODE=/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node
+else
+  echo 'Node.js 24 oder neuer installieren: https://nodejs.org/' >&2
+  exit 1
+fi
+if [ ! -f node_modules/typescript/lib/typescript.js ]; then
+  echo 'Bitte zuerst npm install ausführen (TypeScript-Build-Abhängigkeit).' >&2
+  exit 1
+fi
+exec "$LEONIDA_NODE" scripts/dev.mjs
