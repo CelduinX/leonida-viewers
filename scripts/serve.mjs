@@ -19,7 +19,7 @@ const server=createServer(async(req,res)=>{
     if(!['GET','HEAD'].includes(req.method)){
       const chunks=[];let size=0;for await(const chunk of req){size+=chunk.length;if(size>210000){res.writeHead(413);res.end('Request too large');return;}chunks.push(chunk);}body=Buffer.concat(chunks);
     }
-    const request=new Request(`http://localhost${req.url}`,{method:req.method,headers,body,signal:controller.signal});
+    const request=new Request(`http://${req.headers.host||'localhost'}${req.url}`,{method:req.method,headers,body,signal:controller.signal});
     const response=await worker.fetch(request,env,ctx);
     res.writeHead(response.status,Object.fromEntries(response.headers));
     if(response.body)Readable.fromWeb(response.body).pipe(res);else res.end();
@@ -28,7 +28,7 @@ const server=createServer(async(req,res)=>{
 server.requestTimeout=30000;server.headersTimeout=15000;server.keepAliveTimeout=5000;
 const port=Number(process.env.PORT)||3000,host=process.env.HOST||'127.0.0.1';
 server.on('error',e=>{log('http_server_error',{code:e.code});void shutdown();});
-server.listen(port,host,()=>console.log(`LEONIDA ready at http://${host}:${port}`));
+server.listen(port,host,()=>console.log(`Leonida Viewers ready at http://${host}:${port}`));
 let closing=false;
 async function shutdown(){if(closing)return;closing=true;server.close();await monitor?.stop();await Promise.allSettled([...pending]);await db.close();process.exit(process.exitCode||0);}
 process.on('SIGTERM',shutdown);process.on('SIGINT',shutdown);

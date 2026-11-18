@@ -13,7 +13,7 @@ export interface Env {
   TWITCH_GAME_ID?: string; ADMIN_TOKEN?: string; CRON_TOKEN?: string;
   POLL_INTERVAL_SECONDS?: string; COLLECTION_BUDGET_SECONDS?: string;
   MAX_STREAM_PAGES?: string; HISTORY_RETENTION_DAYS?: string;
-  COLLECT_ON_REQUEST?: string; MONITOR_EXPECT_WORKER?: string;
+  COLLECT_ON_REQUEST?: string; MONITOR_EXPECT_WORKER?: string; PUBLIC_SITE_URL?: string;
 }
 interface Context { waitUntil(promise: Promise<unknown>): void }
 interface CollectorState {
@@ -280,6 +280,7 @@ export async function dashboard(env: Env, range = '24h'): Promise<DashboardData>
   const recordStart=await env.DB.prepare('SELECT started_at FROM recording_state WHERE id=1').first<{started_at:number}>();
   const globalRow=await env.DB.prepare("SELECT * FROM viewer_peaks WHERE scope='global' AND entity_id='global'").first<PeakRow>();
   const countryPeaks=await env.DB.prepare("SELECT * FROM viewer_peaks WHERE scope='country'").all<PeakRow>();
+  const channelLeaders=await env.DB.prepare("SELECT * FROM viewer_peaks WHERE scope='channel' ORDER BY viewers DESC,viewers_at ASC,entity_id ASC LIMIT 5").all<PeakRow>();
   const countryRecords=new Map(countryPeaks.results.map(p=>[p.entity_id,toPeak(p)]));
   const channelRecords=new Map<string,Peak>();
   const userIds=[...new Set(snapshot?.streams.map(s=>s.userId)||[])];
@@ -299,7 +300,7 @@ export async function dashboard(env: Env, range = '24h'): Promise<DashboardData>
     mappedViewers: snapshot?.streams.filter(s => s.country !== 'ZZ').reduce((a, s) => a + s.viewers, 0) || 0,
     mappedChannels: snapshot?.streams.filter(s => s.country !== 'ZZ').length || 0,
     history: history.results.map(p => ({ ...p, complete: !!p.complete })),
-    peaks:{startedAt:recordStart?.started_at??null,global:globalRow?toPeak(globalRow):null},
+    peaks:{startedAt:recordStart?.started_at??null,global:globalRow?toPeak(globalRow):null,countries:[...countryPeaks.results].sort((a,b)=>b.viewers-a.viewers||a.viewers_at-b.viewers_at||a.entity_id.localeCompare(b.entity_id)).slice(0,5).map(toPeak),channels:channelLeaders.results.map(toPeak)},
     monitoring:health,
   };
 }

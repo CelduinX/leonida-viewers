@@ -76,8 +76,8 @@ function reorder(container:HTMLElement,nodes:HTMLElement[]){
 }
 let data:DashboardData|null=null;
 let preview=new URLSearchParams(location.search).get('preview')==='1';
-let range='24h',groupMode:'country'|'language'='country',view='overview',filter='all',languageFilter:string|null=null,query='';
-let visibleStreams=5,showAllCountries=false,refreshing=false,lastSnapshot:number|null=null;
+let range='24h',groupMode:'country'|'language'='country',filter='all',languageFilter:string|null=null,query='';
+let visibleStreams=10,showAllCountries=false,refreshing=false,lastSnapshot:number|null=null;
 let adminToken='',mappings:{user_id:string;country_code:string;note:string;updated_at:number}[]=[];
 let toastTimeout:ReturnType<typeof setTimeout>;
 function toast(message:string){$('#toast').textContent=message;$('#toast').hidden=false;clearTimeout(toastTimeout);toastTimeout=setTimeout(()=>$('#toast').hidden=true,4500);}
@@ -105,7 +105,7 @@ function render(){
   }else note.hidden=true;
   if(s){
     num($('#total'),s.viewers,duration,newSnapshot?p?.viewers:undefined);
-    num($('#channels'),s.channels,duration,newSnapshot?p?.channels:undefined);
+    num($('#active-channels'),s.channels,duration,newSnapshot?p?.channels:undefined);
     const comparable=p?.complete&&s.complete&&s.gameId===p.gameId;
     delta($('#total-delta'),comparable?s.viewers-p.viewers:null);
     $('#total').setAttribute('aria-label',`${fmt.format(s.viewers)} Zuschauer laut letzter Messung${s.complete?'':'; Teilerfassung'}`);
@@ -116,6 +116,9 @@ function render(){
     num($('#country-count'),d.countries.filter(g=>g.code!=='ZZ').length,1200);
     $('#channels-note').textContent=preview?'Feste Beispielkanäle':s.complete?'Live auf Twitch':'Erfasste Kanäle';
     const coverage=s.viewers?d.mappedViewers/s.viewers*100:0;
+    const topCountry=d.countries.find(g=>g.code!=='ZZ');
+    $('#top-country').textContent=topCountry?`${flag(topCountry.code)} ${new Intl.DisplayNames(['de'],{type:'region',style:'short'}).of(topCountry.code)||topCountry.code}`:'Noch offen';
+    $('#top-country').title=topCountry?countryName(topCountry.code):'Noch keine gepflegte Länderzuordnung vorhanden.';
     $('#coverage-note').textContent=`${percent.format(coverage)} % der Zuschauer zugeordnet`;
     $('#coverage-percent').textContent=`${percent.format(coverage)} %`;
     $('#coverage-bar').style.width=`${coverage}%`;
@@ -124,7 +127,7 @@ function render(){
     const topCount=$('#top-count');
     if(top){if(!$('.top-number',topCount))topCount.innerHTML='<span class="top-number"></span> Zuschauer';num($('.top-number',topCount),top.viewers,duration,top.delta===null?undefined:top.viewers-top.delta);}else topCount.textContent='Keine aktiven Kanäle';
   }else{
-    for(const id of ['total','channels','country-count','top-name']){$('#'+id).textContent='—';animations.delete($('#'+id));}
+    for(const id of ['total','active-channels','country-count','top-name']){$('#'+id).textContent='—';animations.delete($('#'+id));}
   }
   const select=$<HTMLSelectElement>('#country-filter'),selected=filter;
   select.innerHTML='<option value="all">Weltweit</option>'+d.countries.map(g=>`<option value="${escape(g.code)}">${escape(flag(g.code)+' '+countryName(g.code))}</option>`).join('');
@@ -145,6 +148,11 @@ function renderRecords(){
   if(!data)return;
   const peak=data.peaks?.global;
   $('#global-peak').textContent=peak?fmt.format(peak.viewers):'—';
+  $('#overview-peak').textContent=peak?fmt.format(peak.viewers):'—';
+  $('#overview-peak-time').textContent=peak?time(peak.viewersAt,true):preview?'Keine historischen Beispieldaten':'Noch keine vollständige Messung';
+  $('#footer-tracked').textContent=data.peaks?.startedAt?`Aufzeichnung seit ${time(data.peaks.startedAt,true)}`:'Aufzeichnung noch nicht gestartet';
+  renderPeakList($('#country-records'),data.peaks?.countries||[],'country');
+  renderPeakList($('#channel-records'),data.peaks?.channels||[],'channel');
   $('#global-peak-time').textContent=peak?`Rekord aufgestellt am ${time(peak.viewersAt,true)}`:preview?'Keine echten Rekorde in der Designvorschau.':'Wartet auf die erste vollständige Twitch-Messung.';
   $('#recording-start').textContent=data.peaks?.startedAt?time(data.peaks.startedAt,true):'Noch nicht gestartet';
   $('#peak-channels').textContent=peak?`${fmt.format(peak.channels)} aktive Streams im Maximum`:'— aktive Streams im Maximum';
@@ -162,26 +170,38 @@ function renderRecords(){
   $('#monitor-counts').textContent=preview?'—':`${fmt.format(m.successes)} / ${fmt.format(m.partials)} / ${fmt.format(m.failures)}`;
   $('#monitor-message').textContent=preview?'Beispieldaten werden nicht als historische Rekorde gespeichert.':m.error||(!m.configured?'Twitch-Zugangsdaten im Worker hinterlegen.':!m.healthy?'Monitoring-Prozess prüfen. Die letzten Messungen bleiben gespeichert.':m.live?`Zentraler Abruf alle ${data.intervalMs/1000} s · letzte Dauer ${m.lastDurationMs??0} ms`:'Worker erreichbar. Noch keine aktuelle vollständige Messung.');
 }
+function renderPeakList(container:HTMLElement,peaks:Peak[],kind:'country'|'channel'){
+  const key=JSON.stringify(peaks)+String(preview);if(container.dataset.content===key)return;container.dataset.content=key;
+  if(!peaks.length){container.innerHTML=`<p class="record-empty">${preview?'Echte Rekorde erscheinen nach Beginn der Aufzeichnung.':'Noch keine vollständigen Messungen für diesen Rekord.'}</p>`;return;}
+  container.innerHTML=peaks.map(p=>{
+    const name=kind==='country'?`${flag(p.entityId)} ${countryName(p.entityId)}`:p.name||p.login||p.entityId;
+    const label=kind==='channel'&&p.login?`<a href="https://www.twitch.tv/${encodeURIComponent(p.login)}" target="_blank" rel="noopener noreferrer" title="${escape(name)} auf Twitch öffnen">${escape(name)}</a>`:escape(name);
+    return `<div class="record-item"><div class="record-item-main"><span class="record-item-name">${label}</span><strong>${fmt.format(p.viewers)}</strong></div><time datetime="${new Date(p.viewersAt).toISOString()}">${escape(time(p.viewersAt,true))}</time></div>`;
+  }).join('');
+}
 function renderGroups(duration=60000){
   if(!data)return;
   const groups=groupMode==='country'?data.countries:data.languages;
-  $('#group-title').textContent=groupMode==='country'?'Die Welt im Ranking':'Live in jeder Sprache';
-  $('#group-subtitle').textContent=groupMode==='country'?'Zuschauer nach zugeordnetem Streamer-Land':'Twitch-Sprachcodes · unabhängig vom Herkunftsland';
+  $('#group-title').textContent=groupMode==='country'?'Die Welt im Ranking.':'Live in jeder Sprache.';
+  $('#group-subtitle').textContent=groupMode==='country'?'Nach zugeordnetem Herkunftsland der Kanäle.':'Nach Twitch-Sprachcode. Unabhängig vom Herkunftsland.';
   $('#group-count').textContent=`${groupMode==='country'?groups.filter(g=>g.code!=='ZZ').length:groups.length} ${groupMode==='country'?'Länder':'Sprachen'}`;
   $('#group-column').textContent=groupMode==='country'?'LAND':'SPRACHE';
   all('[data-group]').forEach(el=>{const active=el.dataset.group===groupMode;el.classList.toggle('selected',active);el.setAttribute('aria-pressed',String(active));});
   $('.coverage').hidden=groupMode==='language';
+  $('#country-section').dataset.mode=groupMode;
   const container=$('#country-list');container.classList.remove('skeleton-list');
   if(!groups.length){empty(container,data.snapshot?'Noch keine Live-Kanäle':'Die Welt wartet auf den ersten Stream.',data.snapshot?'Zur letzten Messung war kein GTA-VI-Kanal live.':'Sobald Twitch verbunden ist, erscheinen hier Länder und ihre Live-Zahlen.',data.status==='unconfigured'?'setup':undefined);return;}
   const oldNodes=new Map(all<HTMLElement>('.country-row',container).map(el=>[el.dataset.key,el]));
   const list=showAllCountries?groups:groups.slice(0,5);
   const nodes=list.map((g,i)=>{
     const key=`${groupMode}-${g.code}`;let row=oldNodes.get(key);
-    if(!row){row=document.createElement('button');row.className='country-row';row.dataset.key=key;row.innerHTML='<span class="country-rank"></span><span class="flag"></span><span class="country-info"><span class="country-name"></span><span class="country-channels"></span><span class="country-peak"></span></span><span class="country-values"><span class="country-value"></span><span class="country-bar"><i></i></span></span>';}
+    if(!row){row=document.createElement('button');row.className='country-row';row.dataset.key=key;row.innerHTML='<span class="country-rank"></span><span class="flag"></span><span class="country-info"><span class="country-name"></span><span class="country-channels"></span></span><span class="country-values"><span class="country-value"></span><span class="country-bar"><i></i></span></span><span class="country-peak"></span>';}
     row.dataset.groupCode=g.code;row.setAttribute('aria-label',`${groupMode==='country'?countryName(g.code):languageName(g.code)}, ${fmt.format(g.viewers)} Zuschauer, ${g.channels} Kanäle anzeigen`);
     row.classList.toggle('selected',groupMode==='country'?filter===g.code:languageFilter===g.code);
+    row.setAttribute('aria-pressed',String(groupMode==='country'?filter===g.code:languageFilter===g.code));
+    if(g.peak)row.setAttribute('aria-description',`Peak seit Beginn der Aufzeichnung: ${fmt.format(g.peak.viewers)} am ${time(g.peak.viewersAt,true)}`);
     $('.country-rank',row).textContent=String(i+1).padStart(2,'0');$('.flag',row).textContent=groupMode==='country'?flag(g.code):g.code.toUpperCase();
-    if(groupMode==='language')$('.flag',row).style.cssText='font-size:11px;color:#b299cc;font-weight:600';else $('.flag',row).style.cssText='';
+    if(groupMode==='language')$('.flag',row).style.cssText='font-size:11px;color:var(--accent);font-weight:600';else $('.flag',row).style.cssText='';
     $('.country-name',row).textContent=groupMode==='country'?countryName(g.code):languageName(g.code);
     $('.country-channels',row).textContent=`${fmt.format(g.channels)} ${g.channels===1?'Kanal':'Kanäle'}`;
     renderEntityPeak($('.country-peak',row),groupMode==='country'?g.peak:undefined,groupMode==='language');
@@ -192,7 +212,7 @@ function renderGroups(duration=60000){
     return row;
   });
   reorder(container,nodes);
-  const link=$('[data-action="all-countries"]');link.innerHTML=`${showAllCountries?'Weniger anzeigen':`Alle ${groupMode==='country'?'Länder':'Sprachen'} ansehen`} <span>↗</span>`;
+  const link=$('[data-action="all-countries"]');link.hidden=groups.length<=5;link.setAttribute('aria-expanded',String(showAllCountries));link.innerHTML=`${showAllCountries?'Weniger anzeigen':`Alle ${groupMode==='country'?'Länder':'Sprachen'} ansehen`} <span>${showAllCountries?'↑':'↓'}</span>`;
 }
 function renderStreams(duration=60000){
   if(!data)return;
@@ -200,10 +220,10 @@ function renderStreams(duration=60000){
   const streams=data.snapshot?.streams||[];
   const matching=streams.filter(s=>(filter==='all'||s.country===filter)&&(!languageFilter||s.language===languageFilter)&&(!query||`${s.name} ${s.login} ${s.title}`.toLocaleLowerCase('de').includes(query)));
   const selectedCountry=filter==='all'?'weltweit':countryName(filter);
-  $('#stream-title').textContent=filter==='all'&&!languageFilter?'Live im Rampenlicht':languageFilter?`Streams · ${languageName(languageFilter)}`:`Live in ${selectedCountry}`;
-  $('#stream-subtitle').textContent=filter==='all'?'Die meistgesehenen GTA-VI-Streams weltweit':`Alle erfassten GTA-VI-Streams · ${selectedCountry}`;
-  const more=$('#more-streams');more.hidden=matching.length<=visibleStreams;
-  more.innerHTML=`${visibleStreams===5?'Alle Streamer':'Weitere 50 laden'} <span>↗</span>`;
+  $('#stream-title').textContent=filter==='all'&&!languageFilter?'Gerade ganz vorne.':languageFilter?`Streams · ${languageName(languageFilter)}`:`Live in ${selectedCountry}`;
+  $('#stream-subtitle').textContent=filter==='all'?'Die meistgesehenen GTA-VI-Kanäle auf Twitch.':`Alle erfassten GTA-VI-Streams · ${selectedCountry}`;
+  const more=$('#more-streams');more.hidden=matching.length<=visibleStreams;$('#fewer-streams').hidden=visibleStreams<=10;
+  more.innerHTML='20 weitere Kanäle <span>↓</span>';
   $('#stream-result').textContent=matching.length?`${fmt.format(Math.min(visibleStreams,matching.length))} von ${fmt.format(matching.length)} Kanälen · letzte Messung`:'Sortiert nach letzter Messung';
   if(!matching.length){empty(container,streams.length?'Keine passenden Streams.':data.snapshot?'Gerade ist es ruhig in Leonida.':'Die Bühne ist bereit.',streams.length?'Versuche einen anderen Namen oder setze die Filter zurück.':data.snapshot?'Zum letzten Messzeitpunkt war kein Kanal in dieser Kategorie live.':'Hier erscheinen die aktiven GTA-VI-Kanäle nach der ersten Twitch-Messung.',streams.length?'reset':data.status==='unconfigured'?'setup':undefined);return;}
   const oldNodes=new Map(all<HTMLElement>('.stream-row',container).map(el=>[el.dataset.key,el]));
@@ -211,7 +231,7 @@ function renderStreams(duration=60000){
   const nodes=matching.slice(0,visibleStreams).map((s,i)=>{
     let row=oldNodes.get(s.id);
     if(!row){row=document.createElement('div');row.className='stream-row';row.dataset.key=s.id;
-      row.innerHTML='<span class="stream-rank"></span><div class="stream-account"><span class="avatar"></span><div class="stream-meta"><a class="stream-name" target="_blank" rel="noopener noreferrer"></a><div class="stream-stream-title"></div><div class="stream-peak"></div></div></div><div class="stream-numbers"><span class="stream-number"></span><span class="delta"></span></div><a class="stream-external" target="_blank" rel="noopener noreferrer">↗</a>';
+      row.innerHTML='<span class="stream-rank"></span><div class="stream-account"><span class="avatar"></span><div class="stream-meta"><a class="stream-name" target="_blank" rel="noopener noreferrer"></a><div class="stream-stream-title"></div></div></div><div class="stream-numbers"><span class="stream-number"></span><span class="delta"></span></div><div class="stream-peak"></div><a class="stream-external" target="_blank" rel="noopener noreferrer">↗</a>';
     }
     const rank=$('.stream-rank',row);rank.textContent=String(i+1).padStart(2,'0');rank.classList.toggle('top-rank',i===0);rank.title=`Globaler Rang ${globalRank.get(s.id)}`;
     const avatar=$('.avatar',row);
@@ -234,6 +254,7 @@ function renderStreams(duration=60000){
   });reorder(container,nodes);
 }
 let chartPoints:Point[]=[];
+let chartGeometry={width:1000,left:65,plot:923};
 function renderChart(){
   if(!data)return;
   const container=$('#chart');
@@ -241,28 +262,30 @@ function renderChart(){
   const windowMs=(range==='1h'?1:range==='7d'?168:24)*3600000;
   const points=data.history.filter(p=>p.at>=now-windowMs);chartPoints=points;
   if(points.length<2){container.innerHTML=`<div class="chart-empty">${icon('pulse')}<strong>${points.length?'Der erste Messpunkt ist gespeichert.':'Der nächste große Moment beginnt hier.'}</strong><p>${points.length?'Mit der nächsten Messung beginnt der Verlauf.':'Der Verlauf erscheint nach den ersten Twitch-Messungen.'}</p></div>`;$('#chart-peak').textContent=points.length?`${fmt.format(points[0].viewers)} Zuschauer`:'Keine Messungen';return;}
-  const width=1000,height=174,left=48,right=10,top=12,bottom=25;
+  const width=Math.max(280,Math.round(container.clientWidth)),height=Math.max(170,Math.round(container.clientHeight)),left=65,right=12,top=12,bottom=27;
+  chartGeometry={width,left,plot:width-left-right};
   const min=Math.min(...points.map(p=>p.viewers)),max=Math.max(...points.map(p=>p.viewers));
   const pad=Math.max((max-min)*.22,max*.025,1);const low=Math.max(0,min-pad),high=max+pad;
   const first=points[0].at,last=points.at(-1)!.at;
   const x=(at:number)=>left+(at-first)/Math.max(1,last-first)*(width-left-right);
   const y=(v:number)=>top+(1-(v-low)/(high-low))*(height-top-bottom);
   const path=points.map((p,i)=>`${i?'L':'M'}${x(p.at).toFixed(2)},${y(p.viewers).toFixed(2)}`).join(' ');
-  const short=(n:number)=>n>=1e6?`${percent.format(n/1e6)} Mio.`:n>=1000?`${Math.round(n/1000)} Tsd.`:fmt.format(Math.round(n));
+  const short=(n:number)=>n>=1e6?`${new Intl.NumberFormat('de-DE',{maximumFractionDigits:2}).format(n/1e6)} Mio.`:n>=1000?`${Math.round(n/1000)} Tsd.`:fmt.format(Math.round(n));
   let grid='';for(let i=0;i<4;i++){const v=low+(high-low)*i/3;grid+=`<line class="grid-line" x1="${left}" x2="${width-right}" y1="${y(v)}" y2="${y(v)}"/><text class="axis-label" x="0" y="${y(v)+3}">${short(v)}</text>`;}
-  let labels='';for(let i=0;i<6;i++){const at=first+(last-first)*i/5;labels+=`<text class="axis-label" x="${x(at)}" y="${height-3}" text-anchor="${i===0?'start':i===5?'end':'middle'}">${new Date(at).toLocaleString('de-DE',range==='7d'?{day:'2-digit',month:'2-digit',hour:'2-digit'}:{hour:'2-digit',minute:'2-digit'})}</text>`;}
-  container.innerHTML=`<svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" role="img" aria-label="Verlauf aus ${points.length} ${preview?'Beispielpunkten':'gespeicherten Messungen'}, von ${fmt.format(points[0].viewers)} bis ${fmt.format(points.at(-1)!.viewers)} Zuschauern"><defs><linearGradient id="chart-fill" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#b58bf4" stop-opacity=".2"/><stop offset="1" stop-color="#b58bf4" stop-opacity="0"/></linearGradient></defs>${grid}<path d="${path} L${x(last)},${height-bottom} L${left},${height-bottom} Z" fill="url(#chart-fill)"/><path d="${path}" stroke="#b493eb" stroke-width="2" fill="none" vector-effect="non-scaling-stroke" stroke-linejoin="round"/><circle cx="${x(last)}" cy="${y(points.at(-1)!.viewers)}" r="3.5" fill="#d0b7f8"/>${points.filter(p=>!p.complete).map(p=>`<circle cx="${x(p.at)}" cy="${y(p.viewers)}" r="3" fill="#dfb074"/>`).join('')}${labels}</svg><div class="chart-tooltip" hidden></div>`;
+  const ticks=width<500?4:6;let labels='';for(let i=0;i<ticks;i++){const at=first+(last-first)*i/(ticks-1);labels+=`<text class="axis-label" x="${x(at)}" y="${height-3}" text-anchor="${i===0?'start':i===ticks-1?'end':'middle'}">${new Date(at).toLocaleString('de-DE',range==='7d'?{day:'2-digit',month:'2-digit',hour:'2-digit'}:{hour:'2-digit',minute:'2-digit'})}</text>`;}
+  container.innerHTML=`<svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" role="img" aria-label="Verlauf aus ${points.length} ${preview?'Beispielpunkten':'gespeicherten Messungen'}, von ${fmt.format(points[0].viewers)} bis ${fmt.format(points.at(-1)!.viewers)} Zuschauern"><defs><linearGradient id="chart-fill" x1="0" y1="0" x2="0" y2="1"><stop stop-color="var(--accent)" stop-opacity=".2"/><stop offset="1" stop-color="var(--accent)" stop-opacity="0"/></linearGradient></defs>${grid}<path d="${path} L${x(last)},${height-bottom} L${left},${height-bottom} Z" fill="url(#chart-fill)"/><path d="${path}" stroke="var(--chart-line)" stroke-width="2" fill="none" vector-effect="non-scaling-stroke" stroke-linejoin="round"/><circle cx="${x(last)}" cy="${y(points.at(-1)!.viewers)}" r="3.5" fill="var(--chart-line)"/>${points.filter(p=>!p.complete).map(p=>`<circle cx="${x(p.at)}" cy="${y(p.viewers)}" r="3" fill="var(--warning)"/>`).join('')}${labels}</svg><div class="chart-tooltip" hidden></div>`;
   $('#history-note').textContent=preview?'Feste Beispielwerte · keine Messungen':`${points.length} Messungen${points.some(p=>!p.complete)?' · orange Punkte: Teilerfassung':''}`;
   $('#chart-peak').textContent=`Peak im Zeitraum: ${fmt.format(max)}`;
 }
 $('#chart').addEventListener('pointermove',e=>{
   const tip=$('.chart-tooltip',$('#chart'));if(!tip||chartPoints.length<2)return;
-  const r=$('#chart').getBoundingClientRect(),t=Math.max(0,Math.min(1,((e.clientX-r.left)/r.width-.048)/.942));
+  const r=$('#chart').getBoundingClientRect(),t=Math.max(0,Math.min(1,((e.clientX-r.left)/r.width*chartGeometry.width-chartGeometry.left)/chartGeometry.plot));
   const at=chartPoints[0].at+(chartPoints.at(-1)!.at-chartPoints[0].at)*t;
   const p=chartPoints.reduce((a,b)=>Math.abs(a.at-at)<Math.abs(b.at-at)?a:b);
   tip.innerHTML=`${fmt.format(p.viewers)} Zuschauer<span>${escape(time(p.at,true))}${p.complete?'':' · Teilerfassung'}${preview?' · Beispiel':''}</span>`;
   tip.hidden=false;tip.style.left=`${Math.max(0,Math.min(r.width-190,e.clientX-r.left+12))}px`;
 });
+let resizeFrame=0;addEventListener('resize',()=>{if(!resizeFrame)resizeFrame=requestAnimationFrame(()=>{resizeFrame=0;renderChart();});});
 $('#chart').addEventListener('pointerleave',()=>{const tip=$('.chart-tooltip',$('#chart'));if(tip)tip.hidden=true;});
 async function refresh(manual=false){
   if(refreshing||preview)return;
@@ -279,16 +302,6 @@ async function refresh(manual=false){
     if(manual)toast(e instanceof Error?e.message:'Verbindungsfehler');
   }finally{refreshing=false;$('#refresh').classList.remove('loading');$<HTMLButtonElement>('#refresh').disabled=false;}
 }
-function setView(next:string){
-  view=next;const titles:Record<string,string>={overview:'Übersicht',countries:'Länder-Ranking',streamers:'Live-Streamer',languages:'Streamsprachen'};
-  $('#breadcrumb').textContent=titles[next]||titles.overview;
-  all('[data-view]').forEach(el=>{el.classList.toggle('active',el.dataset.view===next);if(el.dataset.view===next)el.setAttribute('aria-current','page');else el.removeAttribute('aria-current');});
-  $('main').classList.toggle('expanded',next!=='overview');$('main').classList.toggle('country-view',next==='countries'||next==='languages');$('main').classList.toggle('streamer-view',next==='streamers');
-  $('#record-section').hidden=next!=='overview';$('#history-section').hidden=next!=='overview';$('.hero-grid').hidden=next!=='overview';$('.metrics-grid').hidden=next!=='overview';
-  showAllCountries=next==='countries'||next==='languages';visibleStreams=next==='overview'?5:50;
-  if(next==='languages')groupMode='language';if(next==='countries')groupMode='country';
-  render();$('#sidebar').classList.remove('open');
-}
 async function enablePreview(){
   all<HTMLDialogElement>('dialog[open]').forEach(d=>d.close());
   preview=true;const url=new URL(location.href);url.searchParams.set('preview','1');history.replaceState(null,'',url);
@@ -298,32 +311,45 @@ async function enablePreview(){
 document.addEventListener('click',e=>{
   const target=(e.target as HTMLElement).closest<HTMLElement>('button,[data-action]');if(!target)return;
   if(target.hasAttribute('data-close')){target.closest<HTMLDialogElement>('dialog')?.close();return;}
-  if(target.dataset.view){setView(target.dataset.view);return;}
   if(target.dataset.range){range=target.dataset.range;all('[data-range]').forEach(el=>{el.classList.toggle('selected',el===target);el.setAttribute('aria-pressed',String(el===target));});if(preview)renderChart();else void refresh();return;}
-  if(target.dataset.group){groupMode=target.dataset.group as 'country'|'language';showAllCountries=view!=='overview';languageFilter=null;render();return;}
+  if(target.dataset.group){groupMode=target.dataset.group as 'country'|'language';showAllCountries=false;languageFilter=null;render();return;}
   if(target.dataset.groupCode){
     if(groupMode==='country'){filter=target.dataset.groupCode;languageFilter=null;$<HTMLSelectElement>('#country-filter').value=filter;}
     else{languageFilter=target.dataset.groupCode;filter='all';$<HTMLSelectElement>('#country-filter').value='all';}
-    visibleStreams=50;render();$('#stream-section').scrollIntoView({behavior:reduced.matches?'instant':'smooth',block:'start'});return;
+    visibleStreams=10;render();$('#channels').scrollIntoView({behavior:reduced.matches?'instant':'smooth',block:'start'});return;
   }
   switch(target.dataset.action){
     case'method':modal('#method-dialog');break;
     case'setup':modal('#setup-dialog');break;
     case'admin':modal('#admin-dialog');break;
-    case'menu':$('#sidebar').classList.toggle('open');break;
+    case'theme':window.LeonidaTheme?.toggle();break;
     case'refresh':if(preview)toast('Designvorschau: Die Beispieldaten verändern sich nicht.');else void refresh(true);break;
     case'preview':void enablePreview();break;
     case'exit-preview':location.assign(location.pathname);break;
     case'all-countries':showAllCountries=!showAllCountries;renderGroups();break;
-    case'more-streams':visibleStreams=visibleStreams===5?50:visibleStreams+50;renderStreams();break;
-    case'reset':filter='all';languageFilter=null;query='';$<HTMLInputElement>('#search').value='';visibleStreams=5;render();break;
+    case'more-streams':visibleStreams+=20;renderStreams();break;
+    case'fewer-streams':visibleStreams=10;renderStreams();$('#channels').scrollIntoView({behavior:reduced.matches?'instant':'smooth'});break;
+    case'reset':filter='all';languageFilter=null;query='';$<HTMLInputElement>('#search').value='';visibleStreams=10;render();break;
     case'export':exportMappings();break;
     case'lock':lockAdmin();break;
   }
 });
-$<HTMLInputElement>('#search').addEventListener('input',e=>{query=(e.target as HTMLInputElement).value.toLocaleLowerCase('de').trim();visibleStreams=50;renderStreams();});
-$<HTMLSelectElement>('#country-filter').addEventListener('change',e=>{filter=(e.target as HTMLSelectElement).value;languageFilter=null;visibleStreams=50;renderStreams();renderGroups();});
-document.addEventListener('keydown',e=>{if(e.key==='/'&&!['INPUT','TEXTAREA','SELECT'].includes((e.target as HTMLElement).tagName)&&!$('dialog[open]')){e.preventDefault();if(view==='languages'||view==='countries')setView('streamers');$<HTMLInputElement>('#search').focus();}if(e.key==='Escape')$('#sidebar').classList.remove('open');});
+$<HTMLInputElement>('#search').addEventListener('input',e=>{query=(e.target as HTMLInputElement).value.toLocaleLowerCase('de').trim();visibleStreams=10;renderStreams();});
+$<HTMLSelectElement>('#country-filter').addEventListener('change',e=>{filter=(e.target as HTMLSelectElement).value;languageFilter=null;visibleStreams=10;renderStreams();renderGroups();});
+document.addEventListener('keydown',e=>{if(e.key==='/'&&!['INPUT','TEXTAREA','SELECT'].includes((e.target as HTMLElement).tagName)&&!$('dialog[open]')){e.preventDefault();$('#channels').scrollIntoView({behavior:reduced.matches?'instant':'smooth'});$<HTMLInputElement>('#search').focus();}});
+document.addEventListener('click',event=>{
+  const target=(event.target as HTMLElement).closest<HTMLElement>('[data-theme-option]');
+  if(target)window.LeonidaTheme?.set(target.dataset.themeOption as 'light'|'dark'|'system');
+});
+document.querySelector('.page-nav')?.addEventListener('click',event=>{const link=(event.target as HTMLElement).closest<HTMLAnchorElement>('a');if(link)all<HTMLAnchorElement>('.page-nav a').forEach(a=>{const active=a===link;a.classList.toggle('active',active);if(active)a.setAttribute('aria-current','location');else a.removeAttribute('aria-current');});});
+const sections=all<HTMLElement>('#overview,#countries,#channels,#records');
+const navigation=all<HTMLAnchorElement>('.page-nav a');
+const navObserver=new IntersectionObserver(entries=>{
+  const active=entries.filter(e=>e.isIntersecting).sort((a,b)=>a.boundingClientRect.top-b.boundingClientRect.top)[0];
+  if(!active)return;
+  navigation.forEach(link=>{const selected=link.hash==='#'+active.target.id;link.classList.toggle('active',selected);if(selected)link.setAttribute('aria-current','location');else link.removeAttribute('aria-current');});
+},{rootMargin:'-18% 0px -65% 0px',threshold:0});
+sections.forEach(section=>navObserver.observe(section));
 setInterval(()=>{if(!document.hidden&&!preview)void refresh();},10000);
 setInterval(()=>{
   if(preview){$('#update-timer').textContent='Beispieldaten · kein Live-Abruf';return;}
@@ -355,5 +381,5 @@ $<HTMLInputElement>('#mapping-import').addEventListener('change',async e=>{
   const input=e.target as HTMLInputElement,file=input.files?.[0];if(!file)return;
   try{if(file.size>200000)throw new Error('Maximal 200 KB pro Import.');const parsed=JSON.parse(await file.text());const rows=Array.isArray(parsed)?parsed:parsed.mappings;const result=await adminRequest('PUT',{mappings:rows});await loadMappings();$('#admin-message').textContent=`${result.count} Zuordnungen importiert.`;void refresh();}catch(e){$('#admin-message').textContent=(e as Error).message;}finally{input.value='';}
 });
-function exportMappings(){const blob=new Blob([JSON.stringify({mappings:mappings.map(m=>({userId:m.user_id,countryCode:m.country_code,note:m.note}))},null,2)],{type:'application/json'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='leonida-country-mappings.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
+function exportMappings(){const blob=new Blob([JSON.stringify({mappings:mappings.map(m=>({userId:m.user_id,countryCode:m.country_code,note:m.note}))},null,2)],{type:'application/json'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='leonida-viewers-country-mappings.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
 if(preview)void enablePreview();else void refresh();

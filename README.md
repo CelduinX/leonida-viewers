@@ -1,6 +1,6 @@
-# LEONIDA · GTA VI Live Analytics
+# Leonida Viewers
 
-Twitch-Live-Dashboard mit flüssigen Zahlenanimationen, Länder- und Streamer-Rankings, Suche, Sprachansicht, gespeicherter Historie und dauerhaften Zuschauerrekorden. Der eigenständige Worker erfasst Twitch auch bei **null Website-Besuchern**.
+Ein ruhiger Onepager mit White-/Dark-Mode, eigenem SVG-Branding und flüssigen Zahlenanimationen, Länder- und Streamer-Rankings, Suche, Sprachansicht, gespeicherter Historie und dauerhaften Zuschauerrekorden. Der eigenständige Worker erfasst Twitch auch bei **null Website-Besuchern**.
 
 ## Docker Compose: Installation
 
@@ -86,3 +86,11 @@ Die opt-in Designvorschau `/?preview=1` enthält gekennzeichnete feste Beispield
 Über **Verwaltung** den serverseitigen `ADMIN_TOKEN` verwenden. Länder werden nach numerischer Twitch-User-ID und ISO-Ländercode gepflegt; JSON-Import/-Export ist enthalten. Sprache wird niemals automatisch als Land interpretiert.
 
 Alle Variablen stehen in [.env.example](.env.example). Architektur, Monitoring, Speicherwachstum, SQLite-Migration, Backup und GHCR-Sichtbarkeit sind in [docs/operations.md](docs/operations.md) dokumentiert. `.env` und Datenbanken werden weder committed noch in Images kopiert.
+
+## Oberfläche und Branding
+
+Der Onepager führt von der globalen Live-Zahl über den Verlauf zu Ländern, Kanälen und Rekorden. Standardmäßig sind fünf Länder und zehn Kanäle sichtbar; Suche, Filter und „Mehr anzeigen“ erschließen weitere Daten. Technische Monitoring-Details sind aufklappbar.
+
+Das Design folgt beim ersten Besuch der Systemeinstellung. Die Theme-Taste wechselt zwischen White Mode und Dark Mode; die Auswahl bleibt lokal gespeichert. „Wie System“ im Footer aktiviert wieder die automatische Auswahl. Der Startcode setzt das Theme vor dem Stylesheet. Auch Diagramme, Dialoge und Fehlerzustände verwenden die vollständigen Theme-Farben.
+
+Eigene SVG-Markenassets liegen unter `public/brand/`, das zugehörige Favicon unter `public/favicon.svg`. Die Open-Graph-Vorschau wird lokal ausgeliefert. `PUBLIC_SITE_URL=https://deine-domain.example` setzt für einen HTTPS-Reverse-Proxy die öffentliche Canonical-/Open-Graph-Adresse. Ohne diesen Wert verwendet die Anwendung den Anfrage-Ursprung.

@@ -112,7 +112,7 @@ test('admin authentication attempts are bounded and cron requires its own token'
   assert.equal((await request(c,'/api/collect','POST',undefined,c.env.CRON_TOKEN)).status,200);c.db.close();
 });
 test('worker serves functional assets with security headers and conditional caching',async()=>{
-  const c=await context();const page=await request(c,'/');assert.equal(page.status,200);assert.match(await page.text(),/LEONIDA/);
+  const c=await context();const page=await request(c,'/');assert.equal(page.status,200);assert.match(await page.text(),/Leonida Viewers/);
   assert.equal(page.headers.get('X-Content-Type-Options'),'nosniff');assert.match(page.headers.get('Content-Security-Policy'),/script-src 'self'/);
   for(const path of ['/assets/client.js','/assets/style.css','/assets/demo.js','/favicon.svg'])assert.equal((await request(c,path)).status,200);
   const cached=await c.worker.fetch(new Request('https://tracker.example/',{headers:{'If-None-Match':page.headers.get('ETag')}}),c.env,{});assert.equal(cached.status,304);

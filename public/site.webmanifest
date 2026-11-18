@@ -1,0 +1,12 @@
+{
+  "name": "Leonida Viewers",
+  "short_name": "Leonida Viewers",
+  "description": "Live Twitch Viewer Analytics für GTA VI",
+  "lang": "de",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#F7F7FA",
+  "theme_color": "#7357E8",
+  "icons": [{ "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }]
+}

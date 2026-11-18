@@ -18,7 +18,7 @@ export interface DashboardData {
   lastAttemptAt: number | null; snapshot: Snapshot | null; previous: Snapshot | null;
   countries: Group[]; languages: Group[]; mappedViewers: number; mappedChannels: number;
   history: Point[]; demo?: boolean;
-  peaks: { startedAt: number | null; global: Peak | null };
+  peaks: { startedAt: number | null; global: Peak | null; countries: Peak[]; channels: Peak[] };
   monitoring: Monitoring;
 }
 

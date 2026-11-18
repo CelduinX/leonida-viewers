@@ -15,7 +15,7 @@ RUN npm prune --omit=dev --ignore-scripts --no-audit --no-fund
 
 FROM node:24-alpine
 ARG VCS_REF=unknown
-LABEL org.opencontainers.image.title="LEONIDA Live Analytics" \
+LABEL org.opencontainers.image.title="Leonida Viewers" \
   org.opencontainers.image.source="https://github.com/CelduinX/leonida-viewers" \
   org.opencontainers.image.revision=$VCS_REF
 WORKDIR /app

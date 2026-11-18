@@ -40,6 +40,6 @@ export function demoData(): DashboardData {
   return {status:'live',message:null,intervalMs:60000,nextAttemptAt:at+60000,lastAttemptAt:at,snapshot,
     previous:{...snapshot,id:0,capturedAt:at-60000,viewers:previous.reduce((a,s)=>a+s.viewers,0),streams:previous},
     countries:groups('country'),languages:groups('language'),mappedViewers:streams.filter(s=>s.country!=='ZZ').reduce((a,s)=>a+s.viewers,0),mappedChannels:18,
-    peaks:{startedAt:null,global:null},monitoring:{healthy:false,live:false,configured:false,status:'demo',heartbeatAt:null,lastStartedAt:null,lastCompletedAt:null,lastSuccessAt:null,lastSnapshotAt:null,lastDurationMs:null,consecutiveFailures:0,successes:0,partials:0,failures:0,nextAttemptAt:0,error:null},
+    peaks:{startedAt:null,global:null,countries:[],channels:[]},monitoring:{healthy:false,live:false,configured:false,status:'demo',heartbeatAt:null,lastStartedAt:null,lastCompletedAt:null,lastSuccessAt:null,lastSnapshotAt:null,lastDurationMs:null,consecutiveFailures:0,successes:0,partials:0,failures:0,nextAttemptAt:0,error:null},
     history:values.map((v,i)=>({at:at-(values.length-1-i)*45*60000,viewers:Math.round(total*v/1000),channels:20,complete:true})),demo:true};
 }

@@ -40,7 +40,7 @@ test('channel peaks survive stream-ID and display-name changes',async()=>{
 });
 test('partial, malformed, failed and unconfigured collections never start or raise records',async()=>{
  const c=await context(),at=1700000000000;c.env.MAX_STREAM_PAGES='1';let d=await measure(c,[row('a','1',99999)],at,{cursor:'more'});
- assert.equal(d.status,'partial');assert.deepEqual(d.peaks,{startedAt:null,global:null});
+ assert.equal(d.status,'partial');assert.deepEqual(d.peaks,{startedAt:null,global:null,countries:[],channels:[]});
  d=await measure(c,[row('a','1',NaN)],at+60000);assert.equal(d.snapshot.complete,false);assert.equal(d.peaks.global,null);
  d=await measure(c,[],at+120000,{status:403});assert.equal(d.peaks.global,null);
  c.env.TWITCH_CLIENT_ID='';await c.collect(c.env);assert.equal((await c.dashboard(c.env)).peaks.startedAt,null);c.db.close();
@@ -82,4 +82,13 @@ test('legacy SQLite database upgrades in place without losing existing snapshots
  db.exec(readFileSync(new URL('../migrations/0001_initial.sql',import.meta.url),'utf8'));
  db.prepare("INSERT INTO snapshots(captured_at,started_at,game_id,viewers,channels,complete,payload) VALUES(1,1,'gta6',123,1,1,'[]')").run();db.close();
  const migrated=database(path);assert.equal((await migrated.prepare('SELECT viewers FROM snapshots').first()).viewers,123);assert.equal((await migrated.prepare('SELECT COUNT(*) AS n FROM viewer_peaks').first()).n,0);migrated.close();rmSync(dir,{recursive:true});
+});
+test('record leaderboards include inactive channels and countries without inventing missing history',async()=>{
+ const c=await context(),at=1700000000000;
+ let d=await c.dashboard(c.env);assert.deepEqual(d.peaks.channels,[]);assert.deepEqual(d.peaks.countries,[]);
+ await c.db.prepare("INSERT INTO country_mappings VALUES('1','DE','confirmed',?)").bind(at).run();
+ await measure(c,[row('old','1',900)],at);
+ d=await measure(c,[row('new','2',10)],at+60000);
+ assert.equal(d.snapshot.streams[0].userId,'2');assert.equal(d.peaks.channels[0].entityId,'1');assert.equal(d.peaks.channels[0].viewers,900);
+ assert.equal(d.peaks.countries[0].entityId,'DE');assert.equal(d.peaks.countries[0].viewersAt,at);c.db.close();
 });
